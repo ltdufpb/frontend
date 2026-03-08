@@ -32,7 +32,7 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "dotenv": "16.5.0",
-   "dpg-mapa": "git+https://inovacao.dataprev.gov.br/git/car-dpg/map-component.git#v3.0.1",
+    "dpg-mapa": "git+https://github.com/ltdufpb/map_component.git#v3.0.0",
     "flatpickr": "^4.6.13",
     "html-to-image": "1.11.13",
     "jwt-decode": "4.0.0",
