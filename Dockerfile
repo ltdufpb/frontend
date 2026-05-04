@@ -9,24 +9,17 @@ RUN apk update && apk upgrade --no-cache && \
 
 WORKDIR /app
 
-# Copiar apenas arquivos de dependências primeiro
+# Copiar apenas arquivo de dependências primeiro
 COPY package.json package-lock.json ./
-
-# ============================
-# 2) Process Dependencies Stage
-# ============================
-FROM dependencies AS deps-processed
-# Pacote local referenciado em package.json como file:./map_component
-COPY ./map_component ./map_component
 
 # Instalar dependências com cache otimizado
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --ignore-scripts
+    npm install
 
 # ============================
-# 3) Build Stage
+# 2) Build Stage
 # ============================
-FROM deps-processed AS build
+FROM dependencies AS build
 COPY . .
 ARG APP_VERSION
 ENV APP_VERSION=0.0.0
@@ -35,7 +28,7 @@ RUN echo "0.0.0" > dist/version.txt
 RUN sh scripts/generate-config.sh
 
 # ============================
-# 4) Runtime Stage
+# 3) Runtime Stage
 # ============================
 FROM nginx:alpine
 
