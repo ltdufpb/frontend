@@ -10,7 +10,7 @@ RUN apk update && apk upgrade --no-cache && \
 WORKDIR /app
 
 # Copiar apenas arquivo de dependências primeiro
-COPY package.json package-lock.json ./
+COPY package.json ./
 
 # Instalar dependências com cache otimizado
 RUN --mount=type=cache,target=/root/.npm \
