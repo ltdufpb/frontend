@@ -1141,7 +1141,10 @@ describe('MapHandler - Complete Coverage Tests', () => {
 
       mapHandler.addBuffer(rules, bufferJson)
 
-      expect(mockLeaflet.geoJson).toHaveBeenCalledWith(bufferJson, rules)
+      expect(mockLeaflet.geoJson).toHaveBeenCalledWith(bufferJson, {
+        ...rules,
+        pane: 'rerVectorOverlayPane',
+      })
     })
 
     it('should handle getCustomContainer when container exists', () => {
@@ -1329,16 +1332,13 @@ describe('MapHandler - Complete Coverage Tests', () => {
         },
       }
 
-      const mockFoundLayer = { _leaflet_id: 123 }
-      mockDrawItemsGroup.getLayer.mockReturnValue(mockFoundLayer)
-      mockDrawItemsGroup.eachLayer.mockImplementation((callback) => {
-        callback({ options: { layerCode: 'testLayer' } })
-        callback({ options: { layerCode: 'bufferLayer' } })
-      })
+      const mockBufferLayer = { _leaflet_id: 999, options: { layerCode: 'bufferLayer' } }
+      const mockFoundLayer = { _leaflet_id: 123, options: { layerCode: 'testLayer' } }
+      mockDrawItemsGroup.getLayers.mockReturnValue([mockBufferLayer, mockFoundLayer])
 
       const result = mapHandler.toggleLayerVisibility(layer)
 
-      expect(mockDrawItemsGroup.removeLayer).toHaveBeenCalledTimes(2)
+      expect(mockDrawItemsGroup.removeLayer).toHaveBeenCalledWith(mockFoundLayer)
       expect(result).toBeUndefined()
     })
 
@@ -1351,15 +1351,12 @@ describe('MapHandler - Complete Coverage Tests', () => {
         rules: {},
       }
 
-      const mockFoundLayer = { _leaflet_id: 123 }
-      mockDrawItemsGroup.getLayer.mockReturnValue(mockFoundLayer)
-      mockDrawItemsGroup.eachLayer.mockImplementation((callback) => {
-        callback({ options: { layerCode: 'testLayer' } })
-      })
+      const mockFoundLayer = { _leaflet_id: 123, options: { layerCode: 'testLayer' } }
+      mockDrawItemsGroup.getLayers.mockReturnValue([mockFoundLayer])
 
       const result = mapHandler.toggleLayerVisibility(layer)
 
-      expect(mockDrawItemsGroup.removeLayer).toHaveBeenCalledTimes(1)
+      expect(mockDrawItemsGroup.removeLayer).toHaveBeenCalledWith(mockFoundLayer)
       expect(result).toBeUndefined()
     })
 
@@ -1391,10 +1388,76 @@ describe('MapHandler - Complete Coverage Tests', () => {
       }
 
       mockDrawItemsGroup.getLayer.mockReturnValue(null)
+      mockDrawItemsGroup.getLayers.mockReturnValue([])
 
       const result = mapHandler.toggleLayerVisibility(layer)
 
       expect(result).toBeDefined()
+    })
+
+    it('should restore cached layer and preserve nested buffer data', () => {
+      const preservedBuffer = {
+        properties: {
+          layerCode: 'bufferLayer',
+          area: 12.3,
+        },
+      }
+
+      const hiddenLayer = {
+        _leaflet_id: 123,
+        options: {
+          layerCode: 'testLayer',
+          rules: { geometryType: 'Polygon' },
+        },
+        toGeoJSON: () => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [0, 0],
+                [1, 0],
+                [1, 1],
+                [0, 1],
+                [0, 0],
+              ],
+            ],
+          },
+          properties: {},
+        }),
+      }
+
+      const layer = {
+        layerCode: 'testLayer',
+        vectorizedArea: {
+          layer: { _leaflet_id: 123 },
+          buffer: preservedBuffer,
+        },
+        rules: {
+          buffer: { layerCode: 'bufferLayer' },
+        },
+      }
+
+      const bufferLeaflet = {
+        _leaflet_id: 456,
+        options: { layerCode: 'bufferLayer' },
+        toGeoJSON: () => ({
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] },
+          properties: {},
+        }),
+      }
+
+      mockDrawItemsGroup.getLayers
+        .mockReturnValueOnce([bufferLeaflet, hiddenLayer])
+        .mockReturnValueOnce([bufferLeaflet])
+        .mockReturnValueOnce([bufferLeaflet])
+
+      mapHandler.toggleLayerVisibility(layer)
+      const restored = mapHandler.toggleLayerVisibility(layer)
+
+      expect(mockDrawItemsGroup.addLayer).toHaveBeenCalledWith(hiddenLayer)
+      expect(restored?.buffer).toEqual(preservedBuffer)
     })
 
     it('should handle addCentralizationControl with bounds', () => {

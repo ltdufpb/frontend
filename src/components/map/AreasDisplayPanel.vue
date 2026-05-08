@@ -35,7 +35,7 @@ const handleToggleVisibility = (item) => {
 }
 
 const handleRequestEdit = (item) => {
-  if (item.isVisible && !item.isEditing) return
+  if (!item.isVisible && !item.isEditing) return
   props.layerControls.triggerEditing(item)
 }
 
@@ -88,12 +88,12 @@ const canEdit = (item) => {
               @click="handleToggleVisibility(item)"
               :title="
                 item.isVisible
-                  ? getLanguage('mapComponents.areasDisplayPanel.showLayer')
-                  : getLanguage('mapComponents.areasDisplayPanel.hideLayer')
+                  ? getLanguage('mapComponents.areasDisplayPanel.hideLayer')
+                  : getLanguage('mapComponents.areasDisplayPanel.showLayer')
               "
             >
-              <i v-if="item.isVisible" class="fas fa-eye-slash text-gray-600 hover:text-blue-600" />
-              <i v-else class="fas fa-eye text-gray-600 hover:text-blue-600" />
+              <i v-if="item.isVisible" class="fas fa-eye text-gray-600 hover:text-blue-600" />
+              <i v-else class="fas fa-eye-slash text-gray-600 hover:text-blue-600" />
             </button>
             <span v-else class="w-[24px]" />
             <span
@@ -116,7 +116,7 @@ const canEdit = (item) => {
                 :title="getLanguage('mapComponents.areasDisplayPanel.editLayer')"
               >
                 <i
-                  v-if="item.isVisible && !item.isEditing"
+                  v-if="!item.isVisible && !item.isEditing"
                   class="fas fa-times text-red-600 text-xs"
                 />
                 <i
