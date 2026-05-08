@@ -45,7 +45,8 @@ RUN mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp \
     chown -R nginx:nginx /var/cache/nginx && \
     chmod -R 755 /var/cache/nginx && \
     touch /tmp/nginx.pid && \
-    chown nginx:nginx /tmp/nginx.pid
+    chown nginx:nginx /tmp/nginx.pid && \
+    chown -R nginx:nginx /var/log/nginx
 
 EXPOSE 8080
 USER nginx
