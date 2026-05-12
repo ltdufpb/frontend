@@ -23,6 +23,8 @@ FROM dependencies AS build
 COPY . .
 ARG APP_VERSION
 ENV APP_VERSION=0.0.0
+ARG VITE_BASE_URL=/
+ENV VITE_BASE_URL=${VITE_BASE_URL}
 RUN npm run build-only
 RUN echo "0.0.0" > dist/version.txt
 RUN sh scripts/generate-config.sh
@@ -35,7 +37,7 @@ FROM nginx:alpine
 # Atualizar pacotes para corrigir CVEs
 RUN apk update && apk upgrade --no-cache
 
-COPY --from=build /app/dist/ /usr/share/nginx/html/rectest
+COPY --from=build /app/dist/ /usr/share/nginx/html/
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY ./nginx.conf /etc/nginx/nginx.conf
 
