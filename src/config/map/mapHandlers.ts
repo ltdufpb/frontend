@@ -253,10 +253,10 @@ export default class MapHandler {
 
     this._drawItemsGroup.clearLayers()
 
+    this.ensureDrawPanes()
     processedLayers.forEach((lyr: any) => {
       const opts = vectorizedLayers[lyr.properties.layerCode]
       if (!opts) return
-      this.ensureDrawPanes()
       const options = {
         layerCode: opts.layerCode,
         rules: opts.rules,
@@ -328,6 +328,8 @@ export default class MapHandler {
     const propertyLayers = layers.filter((lyr) => getCode(lyr) === PROPERTY_CODE)
     const otherLayers = layers.filter((lyr) => getCode(lyr) !== PROPERTY_CODE)
 
+    // Sort non-property layers alphabetically for deterministic stacking order.
+    // TODO: replace with explicit priority map if layer ordering becomes a UX concern.
     const sortedOthers = [...otherLayers].sort((a, b) => getCode(a).localeCompare(getCode(b)))
 
     const ordered = [...propertyLayers, ...sortedOthers]
@@ -754,7 +756,7 @@ export default class MapHandler {
         const bufferCodeFromRules = layerOrCode.rules?.buffer?.layerCode
         let foundLayer: any = null
         for (const lyr of this._drawItemsGroup.getLayers() as any[]) {
-          const code = lyr?.options?.layerCode
+          const code = this.resolveDrawLayerCode(lyr)
           if (bufferCodeFromRules && code === bufferCodeFromRules) continue
           if (code === layerCode) {
             foundLayer = lyr
