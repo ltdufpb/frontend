@@ -108,6 +108,7 @@ describe('PropertyMapView', () => {
       handleDrawingControls: vi.fn(),
       processDrawingFromMapEvent: vi.fn(),
       processDrawingFromState: vi.fn(),
+      ensurePropertyLayerBehindOthers: vi.fn(),
       editLayer: vi.fn(),
       removeLayer: vi.fn(),
       toggleLayerVisibility: vi.fn(),
@@ -358,6 +359,7 @@ describe('PropertyMapView', () => {
 
       expect(wrapper.vm.vectorizedLayer.TEST_LAYER).toEqual(mockState.vectorizedLayers.TEST_LAYER)
       expect(mockMapHandler.processDrawingFromState).toHaveBeenCalled()
+      expect(mockMapHandler.ensurePropertyLayerBehindOthers).toHaveBeenCalled()
       expect(mockMapHandler.centralizeMap).toHaveBeenCalled()
     })
 

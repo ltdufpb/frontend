@@ -2,6 +2,11 @@ import * as turf from '@turf/turf'
 import diffArea from '@/config/diff_area.json'
 const PROPERTY_CODE = diffArea.layer_code
 
+/** Pane com z-index menor: polígono da propriedade não cobre rios/PPA no mesmo mapa. */
+const PROPERTY_PANE = 'rerPropertyBasePane'
+/** Pane acima da propriedade para demais vetores desenhados/processados. */
+const VECTOR_OVERLAY_PANE = 'rerVectorOverlayPane'
+
 import { processLayerService } from '@/services/calculationEngineService'
 
 export default class MapHandler {
@@ -26,10 +31,33 @@ export default class MapHandler {
 
   /* Controls and tools */
   private init(): void {
+    this.ensureDrawPanes()
     this.addPositionControl()
     this.addCustomControlSlot()
     this.blockSelfIntersection()
     this.attachPmCursorHandlers()
+  }
+
+  /** Separa propriedade e demais geometrias em panes (z-index), além da ordem no FeatureGroup. */
+  private ensureDrawPanes(): void {
+    const map = this._map
+    if (typeof map?.getPane !== 'function' || typeof map?.createPane !== 'function') return
+
+    if (!map.getPane(PROPERTY_PANE)) {
+      const p = map.createPane(PROPERTY_PANE)
+      // Acima do tilePane; abaixo do pane dos demais vetores (rio, PPA, etc.).
+      p.style.zIndex = '401'
+      p.style.pointerEvents = 'auto'
+    }
+    if (!map.getPane(VECTOR_OVERLAY_PANE)) {
+      const p = map.createPane(VECTOR_OVERLAY_PANE)
+      p.style.zIndex = '415'
+      p.style.pointerEvents = 'auto'
+    }
+  }
+
+  private paneForLayerCode(layerCode: string | undefined): string {
+    return layerCode === PROPERTY_CODE ? PROPERTY_PANE : VECTOR_OVERLAY_PANE
   }
 
   private createCustomMarker(drawStyle: any): any {
@@ -228,11 +256,13 @@ export default class MapHandler {
     processedLayers.forEach((lyr: any) => {
       const opts = vectorizedLayers[lyr.properties.layerCode]
       if (!opts) return
+      this.ensureDrawPanes()
       const options = {
         layerCode: opts.layerCode,
         rules: opts.rules,
         restored: true,
         ...opts.rules.style,
+        pane: this.paneForLayerCode(opts.layerCode),
       }
 
       const layer = this._leaflet.geoJson(lyr, options)
@@ -256,7 +286,63 @@ export default class MapHandler {
       )
     })
 
+    // Ordem no FeatureGroup: propriedade atrás; demais por cima (evita fill cobrindo rio/buffer).
+    this.reorderOverlayStack()
+
     return vectorizedLayers
+  }
+
+  /**
+   * Descobre o layerCode de um item do FeatureGroup (wrapper GeoJSON ou path interno).
+   * Em alguns casos o Leaflet não replica options.layerCode nos paths filhos.
+   */
+  private resolveDrawLayerCode(lyr: any): string {
+    const fromOpts = lyr?.options?.layerCode
+    if (fromOpts) return String(fromOpts)
+    const feat = lyr?.feature
+    if (feat?.properties?.layerCode) return String(feat.properties.layerCode)
+    if (typeof lyr?.eachLayer === 'function') {
+      let found = ''
+      lyr.eachLayer((sub: any) => {
+        if (found) return
+        const code = this.resolveDrawLayerCode(sub)
+        if (code) found = code
+      })
+      return found
+    }
+    return ''
+  }
+
+  /**
+   * Propriedade rural sempre atrás; demais camadas à frente.
+   * `bringToFront`/`bringToBack` em L.GeoJSON nem sempre altera a ordem real no SVG;
+   * remove + add no FeatureGroup define z-order de forma determinística.
+   */
+  private reorderOverlayStack(): void {
+    const group = this._drawItemsGroup
+    const layers = [...(group.getLayers() as any[])]
+    if (!layers.length) return
+
+    const getCode = (lyr: any) => this.resolveDrawLayerCode(lyr)
+
+    const propertyLayers = layers.filter((lyr) => getCode(lyr) === PROPERTY_CODE)
+    const otherLayers = layers.filter((lyr) => getCode(lyr) !== PROPERTY_CODE)
+
+    const sortedOthers = [...otherLayers].sort((a, b) => getCode(a).localeCompare(getCode(b)))
+
+    const ordered = [...propertyLayers, ...sortedOthers]
+
+    ordered.forEach((lyr) => {
+      group.removeLayer(lyr)
+    })
+    ordered.forEach((lyr) => {
+      group.addLayer(lyr)
+    })
+  }
+
+  /** Chamado após restaurar geometrias do sessionStorage — mesma regra de empilhamento do processamento. */
+  public ensurePropertyLayerBehindOthers(): void {
+    this.reorderOverlayStack()
   }
 
   private async processLayerFromCalculationEngine(vectorizedLayers: any) {
@@ -284,7 +370,10 @@ export default class MapHandler {
   }
 
   private addBuffer(rules: any, bufferJson: any): void {
-    this.addUpdatedLayer(this._leaflet.geoJson(bufferJson, { ...rules }))
+    this.ensureDrawPanes()
+    this.addUpdatedLayer(
+      this._leaflet.geoJson(bufferJson, { ...rules, pane: VECTOR_OVERLAY_PANE }),
+    )
   }
 
   private getJsonFeatures(layer: any): any {
@@ -317,9 +406,13 @@ export default class MapHandler {
   }
 
   private applyLayerToMap(layer: any): any {
+    this.ensureDrawPanes()
     const layerJson = this.getJsonFeatures(layer)
     const { type } = layerJson.geometry
     const layerOptions = { ...layer.options }
+    if (!layerOptions.pane && layerOptions.layerCode) {
+      layerOptions.pane = this.paneForLayerCode(layerOptions.layerCode)
+    }
 
     const isPolyAllowed = type === 'MultiPolygon' && layerOptions.rules.geometryType === 'Polygon'
     const isSameType = type === layerOptions.rules.geometryType
@@ -557,6 +650,10 @@ export default class MapHandler {
     const { geoJson, options, buffer } = data
 
     options.restored = true
+    this.ensureDrawPanes()
+    if (!options.pane && options.layerCode) {
+      options.pane = this.paneForLayerCode(options.layerCode)
+    }
     const layer = this._leaflet.geoJson(geoJson, options)
 
     const appliedLayer = this.applyLayerToMap(layer)
@@ -627,61 +724,97 @@ export default class MapHandler {
 
     if (layerCode === PROPERTY_CODE) return
 
-    // If caller passed a string, keep backward-compatible behavior
-    if (isString) {
-      if (this._tempLayers[layerCode]) {
-        this._drawItemsGroup.addLayer(this._tempLayers[layerCode])
-        this._tempLayers[layerCode] = null
-        return
-      }
-
-      this._drawItemsGroup.eachLayer((lyr: any) => {
-        if (lyr.options?.layerCode === layerCode) {
-          this._tempLayers[layerCode] = lyr
-          this._drawItemsGroup.removeLayer(lyr)
-        }
-      })
-
-      return
-    }
-
-    // If caller passed a layer object, try to toggle using the underlying leaflet layer
     try {
-      const vectorized = layerOrCode.vectorizedArea
-      const leafletLayer = vectorized?.layer
-
-      // if layer exists in the group (visible), remove it (and buffer if any)
-      const foundLayer = leafletLayer
-        ? this._drawItemsGroup.getLayer(leafletLayer._leaflet_id)
-        : null
-
-      if (foundLayer) {
-        // store and remove main layer
-        this._tempLayers[layerCode] = foundLayer
-        this._drawItemsGroup.removeLayer(foundLayer)
-
-        // also remove buffer layer(s) if rules specify
-        if (layerOrCode.rules?.buffer) {
-          const bufferCode = layerOrCode.rules.buffer.layerCode
-          this._drawItemsGroup.eachLayer((lyr: any) => {
-            if (lyr.options?.layerCode === bufferCode) {
-              this._tempLayers[bufferCode] = lyr
-              this._drawItemsGroup.removeLayer(lyr)
-            }
-          })
+      // If caller passed a string, keep backward-compatible behavior
+      if (isString) {
+        if (this._tempLayers[layerCode]) {
+          this._drawItemsGroup.addLayer(this._tempLayers[layerCode])
+          this._tempLayers[layerCode] = null
+          return
         }
+
+        this._drawItemsGroup.eachLayer((lyr: any) => {
+          if (lyr.options?.layerCode === layerCode) {
+            this._tempLayers[layerCode] = lyr
+            this._drawItemsGroup.removeLayer(lyr)
+          }
+        })
 
         return
       }
 
-      // if not found, add it back to the map -> applyLayerToMap then return processed layer data
-      if (leafletLayer) {
-        const applied = this.applyLayerToMap(leafletLayer)
-        return this.processAppliedLayer(applied)
+      // If caller passed a layer object, try to toggle using the underlying leaflet layer
+      try {
+        const vectorized = layerOrCode.vectorizedArea
+        const leafletLayer = vectorized?.layer
+        const preservedBuffer = vectorized?.buffer || null
+
+        // Localiza só a camada principal no grupo: nunca usar só _leaflet_id (referência
+        // pode estar desatualizada e remover a filha/buffer). Ignora explicitamente o layerCode do buffer.
+        const bufferCodeFromRules = layerOrCode.rules?.buffer?.layerCode
+        let foundLayer: any = null
+        for (const lyr of this._drawItemsGroup.getLayers() as any[]) {
+          const code = lyr?.options?.layerCode
+          if (bufferCodeFromRules && code === bufferCodeFromRules) continue
+          if (code === layerCode) {
+            foundLayer = lyr
+            break
+          }
+        }
+
+        if (foundLayer) {
+          // Armazena e remove apenas a camada principal; buffer (filha) permanece no mapa
+          // e tem visibilidade independente (toggle por código ou painel).
+          this._tempLayers[layerCode] = foundLayer
+          this._drawItemsGroup.removeLayer(foundLayer)
+
+          return
+        }
+
+        // if not found, first try to restore from temporary cache
+        const cachedLayer = this._tempLayers[layerCode]
+        if (cachedLayer) {
+          this._drawItemsGroup.addLayer(cachedLayer)
+          this._tempLayers[layerCode] = null
+
+          const layerData = this.processAppliedLayer(cachedLayer, null)
+          if (preservedBuffer) {
+            layerData.buffer = preservedBuffer
+          }
+
+          // Se o buffer sumiu do mapa (ex.: removido por referência errada antes), recoloca a partir do GeoJSON.
+          let bufferStillOnMap = false
+          if (bufferCodeFromRules) {
+            for (const lyr of this._drawItemsGroup.getLayers() as any[]) {
+              if (lyr?.options?.layerCode === bufferCodeFromRules) {
+                bufferStillOnMap = true
+                break
+              }
+            }
+          }
+          if (
+            bufferCodeFromRules &&
+            preservedBuffer &&
+            !bufferStillOnMap &&
+            layerOrCode.rules?.buffer
+          ) {
+            this.addBuffer(layerOrCode.rules.buffer, preservedBuffer)
+          }
+
+          return layerData
+        }
+
+        // if cache is empty, add it back to the map and keep nested buffer information
+        if (leafletLayer) {
+          const applied = this.applyLayerToMap(leafletLayer)
+          return this.processAppliedLayer(applied, preservedBuffer)
+        }
+      } catch {
+        // swallow and return undefined to avoid breaking callers
+        return
       }
-    } catch {
-      // swallow and return undefined to avoid breaking callers
-      return
+    } finally {
+      this.reorderOverlayStack()
     }
   }
 

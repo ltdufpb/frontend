@@ -32,7 +32,7 @@ describe('AreasDisplayPanel.vue', () => {
       layerCode: 'other_layer',
       displayNameKey: 'other.layer',
       displayName: 'Other Layer',
-      isVisible: false,
+      isVisible: true,
       isEditing: false,
       isApiDerived: false,
       parentGroup: 'group1',

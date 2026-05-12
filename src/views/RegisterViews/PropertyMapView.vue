@@ -87,6 +87,7 @@ const loadVectorizedLayers = () => {
         ...layer,
         parentGroup: group.groupKey,
         vectorizedArea: null,
+        isVisible: true,
       }
     }
   }
@@ -97,6 +98,7 @@ const updateLayerData = (data) => {
   if (!data.layer?.options?.layerCode) return
   const { layerCode } = data.layer.options
   vectorizedLayer.value[layerCode].vectorizedArea = data.layer
+  vectorizedLayer.value[layerCode].isVisible = vectorizedLayer.value[layerCode].isVisible ?? true
   processingStatus.value.processed = false
 }
 
@@ -153,10 +155,13 @@ const restoreMapState = () => {
 
   for (const key in vectorizedLayers) {
     vectorizedLayer.value[key] = vectorizedLayers[key]
+    vectorizedLayer.value[key].isVisible = vectorizedLayers[key].isVisible ?? true
     vectorizedLayer.value[key].vectorizedArea = mapHandler.processDrawingFromState(
       vectorizedLayers[key].vectorizedArea,
     )
   }
+
+  mapHandler.ensurePropertyLayerBehindOthers()
 
   if (currentStep) {
     currentMapStep.value = currentStep
@@ -191,6 +196,7 @@ const handleDrawingArea = (evt) => {
   const { layerCode } = evt.layer.options
 
   vectorizedLayer.value[layerCode].vectorizedArea = processedLayer
+  vectorizedLayer.value[layerCode].isVisible = true
 
   mapHandler.handleDrawingControls(vectorizedLayer.value[layerCode])
   showDescriptiveMemorial.value = false
@@ -220,15 +226,23 @@ const layerControlInjection = {
     const { layerCode } = layer
     if (layerCode === PROPERTY_KEY) return
 
+    const previousVectorized = vectorizedLayer.value[layerCode].vectorizedArea
+
     // pass the whole layer object so MapHandler can use either object or string
     const toggled = mapHandler.toggleLayerVisibility(layer)
 
     // if a layer object is returned (made visible), set it on the vectorized layer
     if (toggled) {
-      vectorizedLayer.value[layerCode].vectorizedArea = toggled
+      const merged = { ...toggled }
+      const bufferRef = toggled.buffer ?? previousVectorized?.buffer
+      if (bufferRef !== undefined) {
+        merged.buffer = bufferRef
+      }
+      vectorizedLayer.value[layerCode].vectorizedArea = merged
     }
 
-    vectorizedLayer.value[layerCode].isVisible = !vectorizedLayer.value[layerCode].isVisible
+    const isCurrentlyVisible = vectorizedLayer.value[layerCode].isVisible ?? true
+    vectorizedLayer.value[layerCode].isVisible = !isCurrentlyVisible
   },
 
   triggerBufferVisibility: (bufferCode) => {
@@ -266,6 +280,11 @@ const processLayers = async () => {
   try {
     processingStatus.value.isProcessing = true
     vectorizedLayer.value = await mapHandler.processLayersOnAPI(vectorizedLayer.value)
+    Object.keys(vectorizedLayer.value).forEach((layerCode) => {
+      const layerState = vectorizedLayer.value[layerCode]
+      if (!layerState || typeof layerState !== 'object' || !('vectorizedArea' in layerState)) return
+      layerState.isVisible = layerState.isVisible ?? true
+    })
     saveMapState()
     processingStatus.value.processed = true
   } catch (e) {
