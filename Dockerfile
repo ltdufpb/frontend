@@ -9,12 +9,12 @@ RUN apk update && apk upgrade --no-cache && \
 
 WORKDIR /app
 
-# Copiar apenas arquivo de dependências primeiro
-COPY package.json ./
+# Copiar arquivos de dependências
+COPY package.json package-lock.json ./
 
-# Instalar dependências com cache otimizado
+# Instalar dependências com cache otimizado (deterministic)
 RUN --mount=type=cache,target=/root/.npm \
-    npm install
+    npm ci
 
 # ============================
 # 2) Build Stage
