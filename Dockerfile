@@ -3,16 +3,13 @@
 # ============================
 FROM node:18-alpine AS dependencies
 
-# Atualizar pacotes para corrigir CVEs e instalar necessários
 RUN apk update && apk upgrade --no-cache && \
     apk add --no-cache jq
 
 WORKDIR /app
 
-# Copiar arquivos de dependências
 COPY package.json package-lock.json ./
 
-# Instalar dependências com cache otimizado (deterministic)
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 
@@ -21,12 +18,12 @@ RUN --mount=type=cache,target=/root/.npm \
 # ============================
 FROM dependencies AS build
 COPY . .
-ARG APP_VERSION
-ENV APP_VERSION=0.0.0
+ARG APP_VERSION=0.0.0
+ENV APP_VERSION=${APP_VERSION}
 ARG VITE_BASE_URL=/
 ENV VITE_BASE_URL=${VITE_BASE_URL}
 RUN npm run build-only
-RUN echo "0.0.0" > dist/version.txt
+RUN echo "${APP_VERSION}" > dist/version.txt
 RUN sh scripts/generate-config.sh
 
 # ============================
@@ -34,30 +31,30 @@ RUN sh scripts/generate-config.sh
 # ============================
 FROM nginx:alpine
 
-# Atualizar pacotes para corrigir CVEs
 RUN apk update && apk upgrade --no-cache
 
 ARG VITE_BASE_URL=/
-ENV VITE_BASE_URL=${VITE_BASE_URL}
 
-# Copy dist to the correct subpath (/ → /usr/share/nginx/html/, /rectest/ → /usr/share/nginx/html/rectest/)
-RUN mkdir -p /usr/share/nginx/html
+# Normalize: ensure trailing slash
+RUN BASE_PATH="${VITE_BASE_URL}" && \
+    case "$BASE_PATH" in */) ;; *) BASE_PATH="${BASE_PATH}/";; esac && \
+    echo "$BASE_PATH" > /tmp/.base_path
+
+# Copy dist to correct location
 COPY --from=build /app/dist/ /tmp/dist/
-RUN if [ "$VITE_BASE_URL" = "/" ]; then \
-      cp -a /tmp/dist/* /usr/share/nginx/html/; \
-    else \
-      mkdir -p "/usr/share/nginx/html${VITE_BASE_URL}" && \
-      cp -a /tmp/dist/* "/usr/share/nginx/html${VITE_BASE_URL}"; \
-    fi && rm -rf /tmp/dist
+RUN BASE_PATH=$(cat /tmp/.base_path) && \
+    mkdir -p "/usr/share/nginx/html${BASE_PATH}" && \
+    cp -a /tmp/dist/* "/usr/share/nginx/html${BASE_PATH}" && \
+    rm -rf /tmp/dist
 
-# Generate nginx.conf from base path
+# Generate nginx.conf from template
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY ./nginx.conf.template /etc/nginx/nginx.conf.template
-RUN BASE_PATH="${VITE_BASE_URL}" && \
+RUN BASE_PATH=$(cat /tmp/.base_path) && \
     sed "s|__BASE_PATH__|${BASE_PATH}|g" /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && \
-    rm /etc/nginx/nginx.conf.template
+    rm /etc/nginx/nginx.conf.template /tmp/.base_path
 
-# Criar diretórios de cache e ajustar permissões
+# Cache dirs and permissions
 RUN mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp \
     /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp && \
     chown -R nginx:nginx /var/cache/nginx && \
